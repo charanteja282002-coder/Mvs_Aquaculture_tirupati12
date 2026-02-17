@@ -1,0 +1,7 @@
+{
+  "name": "MVS Aqua - Premium Aquarium Store",
+  "description": "A high-end, full-featured e-commerce platform for aquarium enthusiasts, featuring shop management, admin dashboard, and WhatsApp order integration.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
