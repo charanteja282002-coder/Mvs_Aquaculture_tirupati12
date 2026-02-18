@@ -35,7 +35,8 @@ export const ChatBot: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      // Fix: Initialize GoogleGenAI using process.env.API_KEY directly as per guidelines
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       // Build context of products
       const productContext = products.map(p => 

@@ -52,7 +52,7 @@ interface AdminLayoutProps {
 
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'inventory' | 'invoices'>('stats');
-  const { logout, products, setProducts, orders, isOnline } = useApp();
+  const { logout, products, addProduct, updateProduct, removeProduct, orders, isOnline } = useApp();
 
   const handleLogout = () => {
     logout();
@@ -68,7 +68,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onLogout }) => {
   const renderModule = () => {
     switch (activeTab) {
       case 'stats': return <StatsModule orders={orders} products={products} isOnline={isOnline} />;
-      case 'inventory': return <InventoryModule products={products} setProducts={setProducts} />;
+      case 'inventory': return <InventoryModule products={products} addProduct={addProduct} updateProduct={updateProduct} removeProduct={removeProduct} />;
       case 'invoices': return <InvoiceModule orders={orders} products={products} />;
     }
   };
@@ -209,7 +209,6 @@ const StatsModule: React.FC<{ orders: Order[], products: Product[], isOnline: bo
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Sales Trend - Added min-w-0 for Recharts stability */}
         <div className="lg:col-span-2 bg-white p-8 border border-gray-100 rounded-3xl shadow-sm min-w-0">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Revenue Performance (Last 7 Days)</h3>
           <div className="h-[350px] w-full">
@@ -244,7 +243,6 @@ const StatsModule: React.FC<{ orders: Order[], products: Product[], isOnline: bo
           </div>
         </div>
 
-        {/* Category Share - Added min-w-0 for Recharts stability */}
         <div className="bg-white p-8 border border-gray-100 rounded-3xl shadow-sm min-w-0">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Revenue by Category</h3>
           <div className="h-[250px] w-full">
@@ -280,53 +278,6 @@ const StatsModule: React.FC<{ orders: Order[], products: Product[], isOnline: bo
           </div>
         </div>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Top Products */}
-        <div className="bg-white p-8 border border-gray-100 rounded-3xl shadow-sm">
-          <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Top Selling Units</h3>
-          <div className="space-y-6">
-            {topProducts.map((p, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-xs font-black text-gray-400 mr-4">
-                    {i + 1}
-                  </div>
-                  <span className="text-sm font-bold text-gray-900 line-clamp-1">{p.name}</span>
-                </div>
-                <div className="flex items-center">
-                  <span className="text-xs font-black text-aqua-dark bg-blue-50 px-3 py-1 rounded-full uppercase tracking-widest">
-                    {p.quantity} Units
-                  </span>
-                </div>
-              </div>
-            ))}
-            {topProducts.length === 0 && <p className="text-sm text-gray-400 italic">No sales data available yet.</p>}
-          </div>
-        </div>
-
-        {/* Recent Orders Log */}
-        <div className="bg-white p-8 border border-gray-100 rounded-3xl shadow-sm">
-          <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-8">Recent Store Activity</h3>
-          <div className="space-y-6">
-            {orders.slice(0, 5).map((order, i) => (
-              <div key={order.id} className="flex items-center justify-between border-b border-gray-50 pb-4 last:border-0 last:pb-0">
-                <div className="flex items-center">
-                  <div className="bg-aqua-dark/10 p-2 rounded-xl mr-4">
-                    <FileText className="h-4 w-4 text-aqua-dark" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">{order.customerName}</p>
-                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{order.id} • {new Date(order.date).toLocaleDateString()}</p>
-                  </div>
-                </div>
-                <span className="text-sm font-black text-gray-900">₹{order.total.toLocaleString()}</span>
-              </div>
-            ))}
-            {orders.length === 0 && <p className="text-sm text-gray-400 italic">No recent activity logged.</p>}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
@@ -343,10 +294,11 @@ const KpiCard: React.FC<{ icon: any, label: string, value: string, color: string
 
 // --- INVENTORY MODULE ---
 
-const InventoryModule: React.FC<{ products: Product[], setProducts: any }> = ({ products, setProducts }) => {
+const InventoryModule: React.FC<{ products: Product[], addProduct: any, updateProduct: any, removeProduct: any }> = ({ products, addProduct, updateProduct, removeProduct }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const initialFormState: Partial<Product> = {
@@ -355,15 +307,22 @@ const InventoryModule: React.FC<{ products: Product[], setProducts: any }> = ({ 
 
   const [formData, setFormData] = useState<Partial<Product>>(initialFormState);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      setProducts(products.map(p => p.id === editingId ? { ...formData, id: editingId } as Product : p));
-    } else {
-      const newProduct = { ...formData, id: Math.random().toString(36).substr(2, 9) } as Product;
-      setProducts([...products, newProduct]);
+    setIsSaving(true);
+    try {
+      if (editingId) {
+        await updateProduct({ ...formData, id: editingId } as Product);
+      } else {
+        const id = Math.random().toString(36).substr(2, 9);
+        await addProduct({ ...formData, id } as Product);
+      }
+      closeForm();
+    } catch (err) {
+      alert("Error saving to database. Check connection.");
+    } finally {
+      setIsSaving(false);
     }
-    closeForm();
   };
 
   const startEdit = (product: Product) => {
@@ -378,9 +337,13 @@ const InventoryModule: React.FC<{ products: Product[], setProducts: any }> = ({ 
     setFormData(initialFormState);
   };
 
-  const deleteProduct = (id: string) => {
-    if (confirm('Permanently remove this product from inventory?')) {
-      setProducts(products.filter(p => p.id !== id));
+  const deleteProduct = async (id: string) => {
+    if (confirm('Permanently remove this product from the CLOUD database? This will update for all customers.')) {
+      try {
+        await removeProduct(id);
+      } catch (e) {
+        alert("Failed to delete. Check cloud connection.");
+      }
     }
   };
 
@@ -404,7 +367,7 @@ const InventoryModule: React.FC<{ products: Product[], setProducts: any }> = ({ 
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-black text-aqua-dark uppercase tracking-tighter mb-1">Stock Management</h2>
-          <p className="text-sm text-gray-500 font-medium">Control your catalog and availability</p>
+          <p className="text-sm text-gray-500 font-medium">Control your catalog and availability globally</p>
         </div>
         <button 
           onClick={() => setIsAdding(true)}
@@ -480,7 +443,9 @@ const InventoryModule: React.FC<{ products: Product[], setProducts: any }> = ({ 
 
             <div className="md:col-span-2 flex justify-end gap-4 mt-6">
               <button type="button" onClick={closeForm} className="px-10 py-4 bg-gray-100 text-gray-500 font-bold text-[10px] uppercase tracking-widest rounded-2xl hover:bg-gray-200">Cancel</button>
-              <button type="submit" className="px-10 py-4 bg-aqua-dark text-white font-bold text-[10px] uppercase tracking-widest rounded-2xl hover:bg-black shadow-lg shadow-aqua-dark/20">Commit Changes</button>
+              <button type="submit" disabled={isSaving} className="px-10 py-4 bg-aqua-dark text-white font-bold text-[10px] uppercase tracking-widest rounded-2xl hover:bg-black shadow-lg shadow-aqua-dark/20 disabled:opacity-50">
+                {isSaving ? 'Syncing Cloud...' : 'Commit Changes'}
+              </button>
             </div>
           </form>
         </div>

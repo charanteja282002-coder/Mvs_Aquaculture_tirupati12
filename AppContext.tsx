@@ -9,13 +9,20 @@ import {
   doc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   query, 
-  orderBy 
+  orderBy,
+  QuerySnapshot,
+  DocumentData,
+  getDocs
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 interface AppContextType {
   products: Product[];
+  addProduct: (product: Product) => Promise<void>;
+  updateProduct: (product: Product) => Promise<void>;
+  removeProduct: (productId: string) => Promise<void>;
   setProducts: (products: Product[]) => Promise<void>;
   cart: CartItem[];
   addToCart: (product: Product) => void;
@@ -48,32 +55,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Sync Products
+  // Core Sync Effect - Products
   useEffect(() => {
     let unsubscribe: () => void = () => {};
 
     if (isFirebaseConfigured && db) {
-      try {
-        unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
-          const prods = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-          if (prods.length > 0) {
-            setProductsState(prods);
-          }
-          setLoading(false);
-        }, (err) => {
-          console.error("Firestore sync error:", err);
-          setLoading(false);
-        });
-      } catch (e) {
-        console.error("Firebase startup error:", e);
+      const productsRef = collection(db, 'products');
+      
+      // Real-time listener: This triggers for ALL browsers when anyone updates data
+      unsubscribe = onSnapshot(productsRef, (snapshot: QuerySnapshot<DocumentData>) => {
+        const prods = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Product));
+        
+        if (prods.length > 0) {
+          setProductsState(prods);
+        } else {
+          // One-time seed for empty cloud databases
+          console.log("MVS Aqua: Seeding initial catalog to cloud...");
+          INITIAL_PRODUCTS.forEach(p => setDoc(doc(db!, 'products', p.id), p));
+        }
         setLoading(false);
-      }
+      }, (err) => {
+        console.warn("Firestore sync error:", err);
+        setLoading(false);
+      });
     } else {
       const savedProds = localStorage.getItem('mvs_products');
       if (savedProds) {
-        try {
-          setProductsState(JSON.parse(savedProds));
-        } catch (e) {}
+        try { setProductsState(JSON.parse(savedProds)); } catch (e) {}
       }
       setLoading(false);
     }
@@ -81,31 +89,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
-  // Sync Orders
+  // Core Sync Effect - Orders
   useEffect(() => {
     let unsubscribe: () => void = () => {};
 
     if (isFirebaseConfigured && db) {
-      try {
-        const q = query(collection(db, 'orders'), orderBy('date', 'desc'));
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          const ords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-          setOrders(ords);
-        }, (err) => console.error("Order sync error:", err));
-      } catch (e) {}
+      const ordersRef = query(collection(db, 'orders'), orderBy('date', 'desc'));
+      unsubscribe = onSnapshot(ordersRef, (snapshot: QuerySnapshot<DocumentData>) => {
+        const ords = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
+        setOrders(ords);
+      }, (err) => console.warn("Order sync error:", err));
     } else {
       const savedOrders = localStorage.getItem('mvs_orders');
       if (savedOrders) {
-        try {
-          setOrders(JSON.parse(savedOrders));
-        } catch (e) {}
+        try { setOrders(JSON.parse(savedOrders)); } catch (e) {}
       }
     }
 
     return () => unsubscribe();
   }, []);
 
-  // Sync Auth State
+  // Auth Listener
   useEffect(() => {
     if (isFirebaseConfigured && auth) {
       const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
@@ -119,7 +123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // Persist State to LocalStorage
+  // Local Persist for fallback
   useEffect(() => {
     localStorage.setItem('mvs_cart', JSON.stringify(cart));
     if (!isFirebaseConfigured) {
@@ -128,15 +132,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [cart, products, orders]);
 
+  // Persistent Actions
+  const addProduct = async (product: Product) => {
+    if (isFirebaseConfigured && db) {
+      await setDoc(doc(db, 'products', product.id), product);
+    } else {
+      setProductsState(prev => [...prev, product]);
+    }
+  };
+
+  const updateProduct = async (product: Product) => {
+    if (isFirebaseConfigured && db) {
+      await updateDoc(doc(db, 'products', product.id), { ...product });
+    } else {
+      setProductsState(prev => prev.map(p => p.id === product.id ? product : p));
+    }
+  };
+
+  const removeProduct = async (productId: string) => {
+    if (isFirebaseConfigured && db) {
+      await deleteDoc(doc(db, 'products', productId));
+    } else {
+      setProductsState(prev => prev.filter(p => p.id !== productId));
+    }
+  };
+
   const setProducts = async (newProducts: Product[]) => {
     setProductsState(newProducts);
     if (isFirebaseConfigured && db) {
-      try {
-        for (const prod of newProducts) {
-          await setDoc(doc(db, 'products', prod.id), prod);
-        }
-      } catch (e) {
-        console.error("Error updating products in cloud:", e);
+      for (const prod of newProducts) {
+        await setDoc(doc(db, 'products', prod.id), prod);
       }
     }
   };
@@ -173,8 +198,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirebaseConfigured && db) {
       try {
         await setDoc(doc(db, 'orders', order.id), order);
+        // Deduct stock globally when order is placed
+        for (const item of order.items) {
+          const product = products.find(p => p.id === item.id);
+          if (product) {
+            const newStock = Math.max(0, product.stock - item.quantity);
+            await updateDoc(doc(db, 'products', product.id), { stock: newStock });
+          }
+        }
       } catch (e) {
-        console.error("Cloud order failed, saving locally:", e);
+        console.error("Order sync failed:", e);
         setOrders(prev => [order, ...prev]);
       }
     } else {
@@ -198,16 +231,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = async () => {
     if (isFirebaseConfigured && auth) {
-      try {
-        await signOut(auth);
-      } catch (e) {}
+      try { await signOut(auth); } catch (e) {}
     }
     setUser(null);
   };
 
   return (
     <AppContext.Provider value={{
-      products, setProducts, cart, addToCart, removeFromCart, updateCartQuantity, clearCart,
+      products, addProduct, updateProduct, removeProduct, setProducts, cart, addToCart, removeFromCart, updateCartQuantity, clearCart,
       orders, addOrder, updateOrderStatus, user, logout, loading, localLogin,
       isOnline: isFirebaseConfigured
     }}>
