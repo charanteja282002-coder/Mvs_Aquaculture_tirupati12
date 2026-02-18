@@ -8,6 +8,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600&family=Poppins:wght@700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Prevent 'process is not defined' errors in browser -->
+    <script>
+      window.process = { env: { API_KEY: '' } };
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -24,30 +30,47 @@
               sans: ['Roboto', 'sans-serif'],
               heading: ['Poppins', 'sans-serif'],
               accent: ['Montserrat', 'sans-serif'],
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'fade-in-up': 'fadeInUp 0.7s ease-out',
+              'bounce-slow': 'bounce 3s infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(20px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
             }
           }
         }
       }
     </script>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
-    "recharts": "https://esm.sh/recharts@^3.7.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "lucide-react": "https://esm.sh/lucide-react@^0.570.0",
-    "jspdf": "https://esm.sh/jspdf@^4.1.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
-    "firebase/app": "https://esm.sh/firebase@10.8.0/app",
-    "firebase/firestore": "https://esm.sh/firebase@10.8.0/firestore",
-    "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
+    "recharts": "https://esm.sh/recharts@2.15.0",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react": "https://esm.sh/react@18.3.1",
+    "lucide-react": "https://esm.sh/lucide-react@0.400.0",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "@google/genai": "https://esm.sh/@google/genai@1.41.0",
+    "firebase/app": "https://esm.sh/firebase@10.13.0/app",
+    "firebase/firestore": "https://esm.sh/firebase@10.13.0/firestore",
+    "firebase/auth": "https://esm.sh/firebase@10.13.0/auth",
     "firebase/": "https://esm.sh/firebase@^12.9.0/"
   }
 }
 </script>
-</head>
+  </head>
   <body class="bg-gray-50 text-gray-900 overflow-x-hidden">
     <div id="root"></div>
+    <!-- Entry point script -->
+    <script type="module" src="index.tsx"></script>
   </body>
 </html>
