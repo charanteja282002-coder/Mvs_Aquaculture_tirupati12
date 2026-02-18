@@ -35,50 +35,77 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [products, setProductsState] = useState<Product[]>([]);
+  const [products, setProductsState] = useState<Product[]>(INITIAL_PRODUCTS);
   const [orders, setOrders] = useState<Order[]>([]);
   const [cart, setCart] = useState<CartItem[]>(() => {
-    const saved = localStorage.getItem('mvs_cart');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('mvs_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
   });
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Sync Products
   useEffect(() => {
+    let unsubscribe: () => void = () => {};
+
     if (isFirebaseConfigured && db) {
-      const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
-        const prods = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-        setProductsState(prods.length > 0 ? prods : INITIAL_PRODUCTS);
+      try {
+        unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
+          const prods = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
+          if (prods.length > 0) {
+            setProductsState(prods);
+          }
+          setLoading(false);
+        }, (err) => {
+          console.error("Firestore sync error:", err);
+          setLoading(false);
+        });
+      } catch (e) {
+        console.error("Firebase startup error:", e);
         setLoading(false);
-      }, (err) => {
-        console.error("Firestore sync error:", err);
-        setLoading(false);
-      });
-      return () => unsubscribe();
+      }
     } else {
       const savedProds = localStorage.getItem('mvs_products');
-      setProductsState(savedProds ? JSON.parse(savedProds) : INITIAL_PRODUCTS);
+      if (savedProds) {
+        try {
+          setProductsState(JSON.parse(savedProds));
+        } catch (e) {}
+      }
       setLoading(false);
     }
+
+    return () => unsubscribe();
   }, []);
 
   // Sync Orders
   useEffect(() => {
+    let unsubscribe: () => void = () => {};
+
     if (isFirebaseConfigured && db) {
-      const q = query(collection(db, 'orders'), orderBy('date', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const ords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setOrders(ords);
-      }, (err) => console.error("Order sync error:", err));
-      return () => unsubscribe();
+      try {
+        const q = query(collection(db, 'orders'), orderBy('date', 'desc'));
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const ords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+          setOrders(ords);
+        }, (err) => console.error("Order sync error:", err));
+      } catch (e) {}
     } else {
       const savedOrders = localStorage.getItem('mvs_orders');
-      setOrders(savedOrders ? JSON.parse(savedOrders) : []);
+      if (savedOrders) {
+        try {
+          setOrders(JSON.parse(savedOrders));
+        } catch (e) {}
+      }
     }
+
+    return () => unsubscribe();
   }, []);
 
-  // Sync Auth State - Only if auth is validly initialized
+  // Sync Auth State
   useEffect(() => {
     if (isFirebaseConfigured && auth) {
       const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
@@ -104,8 +131,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setProducts = async (newProducts: Product[]) => {
     setProductsState(newProducts);
     if (isFirebaseConfigured && db) {
-      for (const prod of newProducts) {
-        await setDoc(doc(db, 'products', prod.id), prod);
+      try {
+        for (const prod of newProducts) {
+          await setDoc(doc(db, 'products', prod.id), prod);
+        }
+      } catch (e) {
+        console.error("Error updating products in cloud:", e);
       }
     }
   };
@@ -140,7 +171,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addOrder = async (order: Order) => {
     if (isFirebaseConfigured && db) {
-      await setDoc(doc(db, 'orders', order.id), order);
+      try {
+        await setDoc(doc(db, 'orders', order.id), order);
+      } catch (e) {
+        console.error("Cloud order failed, saving locally:", e);
+        setOrders(prev => [order, ...prev]);
+      }
     } else {
       setOrders(prev => [order, ...prev]);
     }
@@ -148,7 +184,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateOrderStatus = async (orderId: string, status: Order['status']) => {
     if (isFirebaseConfigured && db) {
-      await updateDoc(doc(db, 'orders', orderId), { status });
+      try {
+        await updateDoc(doc(db, 'orders', orderId), { status });
+      } catch (e) {}
     } else {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
     }
@@ -160,7 +198,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = async () => {
     if (isFirebaseConfigured && auth) {
-      await signOut(auth);
+      try {
+        await signOut(auth);
+      } catch (e) {}
     }
     setUser(null);
   };
